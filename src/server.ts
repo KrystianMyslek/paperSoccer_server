@@ -27,10 +27,26 @@ function handleMessage(data: Buffer) {
 }
 
 wss.on("connection", (ws: WebSocket) => {
+	const id = game.createPlayer(ws);
+
+	if (id === null) {
+		return console.error("Failed to create player");
+	} else {
+		const cretePlayerMessage = JSON.stringify({
+			type: "open",
+			payload: { id },
+		});
+
+		ws.send(cretePlayerMessage);
+	}
+
 	ws.on("message", (data: Buffer) => {
 		handleMessage(data);
 	});
 
-	ws.on("close", (data) => {});
+	ws.on("close", (data) => {
+		game.removePlayer(id);
+	});
+
 	ws.on("error", console.error);
 });
