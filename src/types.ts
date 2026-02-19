@@ -7,9 +7,12 @@ export interface Player {
 }
 
 export interface Lobby {
-	id: string;
+	id?: string;
+	name: string;
+	size: { x: number; y: number };
 	player_A_id: string;
-	player_B_id: string | null;
+	player_A_name: string;
+	player_B_id?: string;
 }
 
 export interface Field {

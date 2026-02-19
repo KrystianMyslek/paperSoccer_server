@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { PlayerMap, LobbyMap, FieldMap, Player } from "../types";
+import { PlayerMap, LobbyMap, FieldMap, Player, Lobby } from "../types";
 import { v4 as uuidv4 } from "uuid";
 
 export class GameCore {
@@ -7,6 +7,20 @@ export class GameCore {
 	lobbies: LobbyMap = {};
 	waitingPlayers: PlayerMap = {};
 	fields: FieldMap = {};
+
+	protected sendToMany(type: string, payload?: any, recipients?: PlayerMap) {
+		const recipientsToSend = recipients ? recipients : this.players;
+
+		for (const recipient in recipientsToSend) {
+			const waitingPlayer = recipientsToSend[recipient];
+			waitingPlayer.ws.send(
+				JSON.stringify({
+					type: type,
+					payload: payload,
+				}),
+			);
+		}
+	}
 
 	public getPlayers() {
 		return this.players;
@@ -39,13 +53,11 @@ export class GameCore {
 		}
 	}
 
-	public createLobby(player_id: string) {
+	public createLobby(lobby: Lobby) {
 		const id = uuidv4();
-		this.lobbies[id] = {
-			id: id,
-			player_A_id: player_id,
-			player_B_id: null,
-		};
+
+		lobby.id = id;
+		this.lobbies[id] = lobby;
 
 		return this.lobbies[id];
 	}
