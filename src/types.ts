@@ -7,7 +7,7 @@ export interface Player {
 }
 
 export interface Lobby {
-	id?: string;
+	id: string;
 	name: string;
 	size: { x: number; y: number };
 	player_A_id: string;
