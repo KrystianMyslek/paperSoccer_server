@@ -1,9 +1,12 @@
+import { Store } from "./Controllers/store";
 import { Setup } from "./Controllers/setup";
 import { Game } from "./Controllers/game";
 
 export class Broker {
-	public setup = new Setup();
-	public game = new Game();
+	public store = new Store();
+
+	public setup = new Setup(this.store);
+	public game = new Game(this.store);
 
 	handleMessage(data: Buffer) {
 		const msg = JSON.parse(data.toString());

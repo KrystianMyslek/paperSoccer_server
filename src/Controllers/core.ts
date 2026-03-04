@@ -1,18 +1,23 @@
 import { WebSocket } from "ws";
-import { PlayerMap, LobbyMap, FieldMap, Player, Lobby } from "../types";
+import {
+	PlayerMap,
+	Player,
+	Lobby,
+	Game,
+	GameState,
+	fieldPlayer,
+} from "../types";
 import { v4 as uuidv4 } from "uuid";
+import { Store } from "./store";
 
 export class Core {
-	players: PlayerMap = {};
-	lobbies: LobbyMap = {};
-	waitingPlayers: PlayerMap = {};
-	fields: FieldMap = {};
+	constructor(protected store: Store) {}
 
 	protected sendToOne(
 		type: string,
 		payload: any,
 		recipient: string | Player,
-	) {
+	): void {
 		if (typeof recipient === "string") {
 			recipient = this.getPlayerById(recipient) as Player;
 		}
@@ -26,12 +31,30 @@ export class Core {
 		}
 	}
 
-	protected sendToMany(type: string, payload?: any, recipients?: PlayerMap) {
-		const recipientsToSend = recipients ? recipients : this.players;
+	protected sendToFew(
+		type: string,
+		payload: any,
+		recipients: Player[],
+	): void {
+		for (const recipient of recipients) {
+			recipient.ws.send(
+				JSON.stringify({
+					type: type,
+					payload: payload,
+				}),
+			);
+		}
+	}
+
+	protected sendToMany(
+		type: string,
+		payload: any,
+		recipients?: PlayerMap,
+	): void {
+		const recipientsToSend = recipients ? recipients : this.store.players;
 
 		for (const recipient in recipientsToSend) {
-			const waitingPlayer = recipientsToSend[recipient];
-			waitingPlayer.ws.send(
+			recipientsToSend[recipient].ws.send(
 				JSON.stringify({
 					type: type,
 					payload: payload,
@@ -41,11 +64,11 @@ export class Core {
 	}
 
 	protected getPlayers() {
-		return this.players;
+		return this.store.players;
 	}
 
 	protected getPlayerById(player_id: string) {
-		const player = this.players[player_id];
+		const player = this.store.players[player_id];
 		if (player !== undefined) {
 			return player;
 		}
@@ -61,14 +84,14 @@ export class Core {
 
 	protected createPlayer(ws: WebSocket) {
 		const id = uuidv4();
-		this.players[id] = { id: id, ws: ws };
+		this.store.players[id] = { id: id, ws: ws };
 
 		return id;
 	}
 
 	protected removePlayer(player_id: string) {
 		if (player_id !== undefined) {
-			delete this.players[player_id];
+			delete this.store.players[player_id];
 		}
 	}
 
@@ -80,9 +103,9 @@ export class Core {
 			...data,
 		};
 
-		this.lobbies[id] = lobby;
+		this.store.lobbies[id] = lobby;
 
-		return this.lobbies[id];
+		return this.store.lobbies[id];
 	}
 
 	protected joinLobby(player: Player, lobby: Lobby) {
@@ -93,22 +116,29 @@ export class Core {
 
 	protected removeLobby(lobby_id: string) {
 		if (lobby_id !== undefined) {
-			delete this.lobbies[lobby_id];
+			delete this.store.lobbies[lobby_id];
 		}
 	}
 
 	protected getLobbies() {
-		return this.lobbies;
+		return this.store.lobbies;
 	}
 
 	protected getAppLobbies() {
 		const lobbies = [];
-		for (const lobby in this.lobbies) {
+		for (const lobby in this.store.lobbies) {
+			const owner = this.getPlayerById(
+				this.store.lobbies[lobby].player_A_id,
+			) as Player;
+
 			const lobbyData = {
-				id: this.lobbies[lobby].id,
-				name: this.lobbies[lobby].name,
-				owner: this.lobbies[lobby].player_A_name,
-				size: this.lobbies[lobby].size,
+				id: this.store.lobbies[lobby].id,
+				name: this.store.lobbies[lobby].name,
+				owner: {
+					id: owner.id,
+					name: owner.name,
+				},
+				size: this.store.lobbies[lobby].size,
 			};
 			lobbies.push(lobbyData);
 		}
@@ -116,7 +146,7 @@ export class Core {
 	}
 
 	protected getLobbyById(lobby_id: string) {
-		const lobby = this.lobbies[lobby_id];
+		const lobby = this.store.lobbies[lobby_id];
 		if (lobby !== undefined) {
 			return lobby;
 		}
@@ -124,8 +154,8 @@ export class Core {
 	}
 
 	protected getLobbyByOwnerId(owner_id: string) {
-		for (const lobby_id in this.lobbies) {
-			const lobby = this.lobbies[lobby_id];
+		for (const lobby_id in this.store.lobbies) {
+			const lobby = this.store.lobbies[lobby_id];
 			if (lobby.player_A_id === owner_id) {
 				return lobby;
 			}
@@ -139,12 +169,23 @@ export class Core {
 		}
 
 		if (lobby !== null) {
+			const owner = this.getPlayerById(lobby.player_A_id) as Player;
+			const opponent = lobby.player_B_id
+				? (this.getPlayerById(lobby.player_B_id) as Player)
+				: null;
+
 			const lobbyData = {
 				id: lobby.id,
 				name: lobby.name,
-				owner: lobby.player_A_name,
-				opponent: lobby.player_B_id
-					? this.getPlayerById(lobby.player_B_id)?.name || "Unknown"
+				owner: {
+					id: owner.id,
+					name: owner.name,
+				},
+				opponent: opponent
+					? {
+							id: opponent.id,
+							name: opponent.name,
+						}
 					: null,
 				size: lobby.size,
 			};
@@ -153,28 +194,98 @@ export class Core {
 		return null;
 	}
 
-	protected createField(player_A_id: string, player_B_id: string) {
+	protected createGame(lobby: Lobby): [Game, GameState] {
 		const id = uuidv4();
-		this.fields[id] = {
-			id: id,
-			player_A_id: player_A_id,
-			player_B_id: player_B_id,
-		};
 
-		return this.fields[id];
+		let active_player_id = null;
+
+		if (lobby.player_A_id && lobby.player_B_id) {
+			active_player_id =
+				Math.random() < 0.5 ? lobby.player_A_id : lobby.player_B_id;
+
+			this.store.games[id] = {
+				id: id,
+				name: lobby.name,
+				size: lobby.size,
+				player_A_id: lobby.player_A_id,
+				player_B_id: lobby.player_B_id,
+			};
+
+			this.store.gamesState[id] = {
+				active_player_id: active_player_id,
+				possition: {
+					x: <number>Math.floor(lobby.size.x / 2),
+					y: <number>Math.floor(lobby.size.y / 2),
+				},
+				done_moves: {
+					v_lines: <fieldPlayer[][]>(
+						this.newMoveArray(
+							lobby.size.x,
+							lobby.size.y,
+							fieldPlayer.empty,
+						)
+					),
+					h_lines: <fieldPlayer[][]>(
+						this.newMoveArray(
+							lobby.size.x,
+							lobby.size.y,
+							fieldPlayer.empty,
+						)
+					),
+					l_cross: <fieldPlayer[][]>(
+						this.newMoveArray(
+							lobby.size.x,
+							lobby.size.y,
+							fieldPlayer.empty,
+						)
+					),
+					r_cross: <fieldPlayer[][]>(
+						this.newMoveArray(
+							lobby.size.x,
+							lobby.size.y,
+							fieldPlayer.empty,
+						)
+					),
+				},
+				available_moves: {
+					v_lines: <boolean[][]>(
+						this.newMoveArray(lobby.size.x, lobby.size.y, false)
+					),
+					h_lines: <boolean[][]>(
+						this.newMoveArray(lobby.size.x, lobby.size.y, false)
+					),
+					l_cross: <boolean[][]>(
+						this.newMoveArray(lobby.size.x, lobby.size.y, false)
+					),
+					r_cross: <boolean[][]>(
+						this.newMoveArray(lobby.size.x, lobby.size.y, false)
+					),
+				},
+			};
+		}
+
+		return [this.store.games[id], this.store.gamesState[id]];
 	}
 
-	protected removeField(field_id: string) {
-		if (field_id !== undefined) {
-			delete this.fields[field_id];
+	private newMoveArray(x: number, y: number, fill: any): any[][] {
+		return Array(x)
+			.fill(fill)
+			.map(() => Array(y).fill(fill));
+	}
+
+	protected removeGame(game_id: string) {
+		if (game_id !== undefined) {
+			delete this.store.games[game_id];
+			delete this.store.gamesState[game_id];
 		}
 	}
 
-	protected getFieldById(field_id: string) {
-		const field = this.fields[field_id];
-		if (field !== undefined) {
-			return field;
+	protected getGameById(game_id: string): [Game | null, GameState | null] {
+		const game = this.store.games[game_id];
+		const gameState = this.store.gamesState[game_id];
+		if (game !== undefined && gameState !== undefined) {
+			return [game, gameState];
 		}
-		return null;
+		return [null, null];
 	}
 }

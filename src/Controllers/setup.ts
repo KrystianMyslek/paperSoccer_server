@@ -1,4 +1,3 @@
-import { Lobby, Player } from "../types";
 import { Core } from "./core";
 
 import { WebSocket } from "ws";
@@ -17,7 +16,7 @@ export class Setup extends Core {
 
 		if (player) {
 			this.setPlayerName(player_id, username);
-			this.waitingPlayers[player_id] = player;
+			this.store.waitingPlayers[player_id] = player;
 
 			player.ws.send(
 				JSON.stringify({
@@ -30,10 +29,18 @@ export class Setup extends Core {
 		}
 	}
 
+	public returnToWaitingRoom(player_id: string) {
+		const player = this.getPlayerById(player_id);
+
+		if (player) {
+			this.store.waitingPlayers[player_id] = player;
+		}
+	}
+
 	public leaveWaitingRoom(player_id: string) {
 		const player = this.getPlayerById(player_id);
 		if (player) {
-			delete this.waitingPlayers[player_id];
+			delete this.store.waitingPlayers[player_id];
 
 			player.ws.send(
 				JSON.stringify({
@@ -58,7 +65,6 @@ export class Setup extends Core {
 	public newLobby(
 		player_id: string,
 		name: string,
-		owner: string,
 		size: { x: number; y: number },
 	) {
 		const player = this.getPlayerById(player_id);
@@ -67,7 +73,7 @@ export class Setup extends Core {
 				name: name,
 				size: size,
 				player_A_id: player_id,
-				player_A_name: owner,
+				player_A_name: player.name,
 			};
 
 			const createdLobby = this.createLobby(data);
@@ -76,15 +82,18 @@ export class Setup extends Core {
 				lobby: {
 					id: createdLobby.id,
 					name: createdLobby.name,
-					owner: createdLobby.player_A_name,
+					owner: {
+						id: player.id,
+						name: player.name,
+					},
 					size: createdLobby.size,
 				},
 			};
 
-			delete this.waitingPlayers[player_id];
+			delete this.store.waitingPlayers[player_id];
 
 			this.sendToOne("lobby_created", payload, player);
-			this.sendToMany("new_lobby", payload, this.waitingPlayers);
+			this.sendToMany("new_lobby", payload, this.store.waitingPlayers);
 		}
 	}
 
@@ -94,7 +103,7 @@ export class Setup extends Core {
 		if (player && lobby) {
 			this.joinLobby(player, lobby);
 
-			delete this.waitingPlayers[player_id];
+			delete this.store.waitingPlayers[player_id];
 
 			const payload = {
 				lobby: this.getAppLobby(lobby),
@@ -105,7 +114,7 @@ export class Setup extends Core {
 			this.sendToMany(
 				"lobby_destroyed",
 				{ lobby_id },
-				this.waitingPlayers,
+				this.store.waitingPlayers,
 			);
 		}
 	}
@@ -114,12 +123,23 @@ export class Setup extends Core {
 		const lobby = this.getLobbyByOwnerId(player_id);
 
 		if (lobby && lobby.player_A_id === player_id) {
+			if (lobby.player_B_id) {
+				const playerB = this.getPlayerById(lobby.player_B_id);
+				if (playerB) {
+					this.sendToOne(
+						"lobby_destroyed",
+						{ lobby_id: lobby.id },
+						playerB,
+					);
+				}
+			}
+
 			this.removeLobby(lobby.id);
 
 			this.sendToMany(
 				"lobby_destroyed",
 				{ lobby_id: lobby.id },
-				this.waitingPlayers,
+				this.store.waitingPlayers,
 			);
 		}
 	}
