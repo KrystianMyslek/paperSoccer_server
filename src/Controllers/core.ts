@@ -247,30 +247,46 @@ export class Core {
 						)
 					),
 				},
-				available_moves: {
-					v_lines: <boolean[][]>(
-						this.newMoveArray(lobby.size.x, lobby.size.y, false)
-					),
-					h_lines: <boolean[][]>(
-						this.newMoveArray(lobby.size.x, lobby.size.y, false)
-					),
-					l_cross: <boolean[][]>(
-						this.newMoveArray(lobby.size.x, lobby.size.y, false)
-					),
-					r_cross: <boolean[][]>(
-						this.newMoveArray(lobby.size.x, lobby.size.y, false)
-					),
-				},
+				available_moves: this.getCClearAvailableMoves(
+					lobby.size.x,
+					lobby.size.y,
+				),
 			};
 		}
 
 		return [this.store.games[id], this.store.gamesState[id]];
 	}
 
+	protected getGameByOwnerId(owner_id: string) {
+		for (const game_id in this.store.games) {
+			const game = this.store.games[game_id];
+			if (game.player_A_id === owner_id) {
+				return game;
+			}
+		}
+		return null;
+	}
+
+	public getCClearAvailableMoves(x: number, y: number) {
+		return {
+			v_lines: <boolean[][]>this.newMoveArray(x, y, false),
+			h_lines: <boolean[][]>this.newMoveArray(x, y, false),
+			l_cross: <boolean[][]>this.newMoveArray(x, y, false),
+			r_cross: <boolean[][]>this.newMoveArray(x, y, false),
+		};
+	}
+
 	private newMoveArray(x: number, y: number, fill: any): any[][] {
 		return Array(x)
 			.fill(fill)
 			.map(() => Array(y).fill(fill));
+	}
+
+	protected setGameState(game_id: string, newGameState: GameState) {
+		const gameState = this.store.gamesState[game_id];
+		if (gameState !== undefined) {
+			this.store.gamesState[game_id] = newGameState;
+		}
 	}
 
 	protected removeGame(game_id: string) {
