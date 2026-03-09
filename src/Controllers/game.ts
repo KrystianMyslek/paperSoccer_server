@@ -11,11 +11,7 @@ export class Game extends Core {
 			const [game, gameState] = this.createGame(lobby);
 
 			this.removeLobby(lobby.id);
-			this.sendToMany(
-				"lobby_destroyed",
-				{ lobby_id: lobby.id },
-				this.store.waitingPlayers,
-			);
+			this.sendToMany("lobby_destroyed", { lobby_id: lobby.id }, this.store.waitingPlayers);
 
 			if (playerA && playerB) {
 				this.sendToFew(
@@ -34,26 +30,45 @@ export class Game extends Core {
 		if (game && gameState) {
 			const myMove = gameState.active_player_id === player_id;
 
-			if (myMove) {
-				gameState.available_moves = this.getCClearAvailableMoves(
-					game.size.x,
-					game.size.y,
-				);
+			gameState.available_moves = this.getCClearAvailableMoves(game.size.x, game.size.y);
 
+			if (myMove) {
 				const x = gameState.possition.x;
 				const y = gameState.possition.y;
 
-				gameState.available_moves.v_lines[x][y - 1] = true;
-				gameState.available_moves.v_lines[x][y] = true;
+				const border = x == 0 || y == 0 || x == game.size.x || y == game.size.y;
 
-				gameState.available_moves.h_lines[x][y] = true;
-				gameState.available_moves.h_lines[x - 1][y] = true;
+				if (border) {
+					if (x == 0) {
+						gameState.available_moves.h_lines[x][y] = true;
+						gameState.available_moves.l_cross[x][y - 1] = true;
+						gameState.available_moves.r_cross[x][y] = true;
+					} else if (x == game.size.x) {
+						gameState.available_moves.h_lines[x - 1][y] = true;
+						gameState.available_moves.l_cross[x - 1][y] = true;
+						gameState.available_moves.r_cross[x - 1][y - 1] = true;
+					} else if (y == 0) {
+						gameState.available_moves.v_lines[x][y] = true;
+						gameState.available_moves.l_cross[x - 1][y] = true;
+						gameState.available_moves.r_cross[x][y] = true;
+					} else if (y == game.size.y) {
+						gameState.available_moves.v_lines[x][y - 1] = true;
+						gameState.available_moves.l_cross[x][y - 1] = true;
+						gameState.available_moves.r_cross[x - 1][y - 1] = true;
+					}
+				} else {
+					gameState.available_moves.v_lines[x][y - 1] = true;
+					gameState.available_moves.v_lines[x][y] = true;
 
-				gameState.available_moves.l_cross[x][y - 1] = true;
-				gameState.available_moves.l_cross[x - 1][y] = true;
+					gameState.available_moves.h_lines[x][y] = true;
+					gameState.available_moves.h_lines[x - 1][y] = true;
 
-				gameState.available_moves.r_cross[x][y] = true;
-				gameState.available_moves.r_cross[x - 1][y - 1] = true;
+					gameState.available_moves.l_cross[x][y - 1] = true;
+					gameState.available_moves.l_cross[x - 1][y] = true;
+
+					gameState.available_moves.r_cross[x][y] = true;
+					gameState.available_moves.r_cross[x - 1][y - 1] = true;
+				}
 			}
 
 			this.sendToOne(
@@ -78,19 +93,60 @@ export class Game extends Core {
 			const playerA = this.getPlayerById(game.player_A_id);
 			const playerB = this.getPlayerById(game.player_B_id);
 
-			const fieldPlayerType =
-				player_id === game.player_A_id ? fieldPlayer.A : fieldPlayer.B;
+			if (!playerA || !playerB) {
+				return;
+			}
 
+			let move_possition = {
+				x: new_possition.x,
+				y: new_possition.y,
+			};
+
+			switch (type) {
+				case "v_lines":
+					if (gameState.possition.y === new_possition.y) {
+						new_possition.y += 1;
+					}
+					break;
+				case "h_lines":
+					if (gameState.possition.x === new_possition.x) {
+						new_possition.x += 1;
+					}
+					break;
+				case "l_cross":
+					if (gameState.possition.x === new_possition.x) {
+						new_possition.x += 1;
+					} else {
+						new_possition.y += 1;
+					}
+					break;
+				case "r_cross":
+					if (gameState.possition.y === new_possition.y) {
+						new_possition.x += 1;
+						new_possition.y += 1;
+					}
+					break;
+				default:
+					return;
+			}
+
+			const fieldPlayerType = player_id === game.player_A_id ? fieldPlayer.A : fieldPlayer.B;
+
+			gameState.done_moves[type][move_possition.x][move_possition.y] = fieldPlayerType;
 			gameState.possition = new_possition;
 			gameState.active_player_id =
-				gameState.active_player_id === game.player_A_id
-					? game.player_B_id
-					: game.player_A_id;
+				gameState.active_player_id === game.player_A_id ? game.player_B_id : game.player_A_id;
 
 			this.setGameState(game_id, gameState);
 
-			if (game.player_A_id === player_id) {
-			}
+			this.sendToFew(
+				"end_move",
+				{
+					doneMoves: gameState.done_moves,
+					active: gameState.possition,
+				},
+				[playerA, playerB],
+			);
 		}
 	}
 
@@ -101,11 +157,7 @@ export class Game extends Core {
 			if (game.player_B_id) {
 				const playerB = this.getPlayerById(game.player_B_id);
 				if (playerB) {
-					this.sendToOne(
-						"game_destroyed",
-						{ game_id: game.id },
-						playerB,
-					);
+					this.sendToOne("game_destroyed", { game_id: game.id }, playerB);
 				}
 			}
 
