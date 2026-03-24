@@ -5,8 +5,24 @@ import { WebSocket, WebSocketServer } from "ws";
 import { Broker } from "./broker";
 
 const wsPort = parseInt(process.env.WS_PORT || "8080");
+const wssEnabled = process.env.WSS !== "false";
 
-const wss = new WebSocketServer({ port: wsPort });
+let wss = null;
+let server = null;
+
+if (wssEnabled) {
+	const https = require("https");
+	const fs = require("fs");
+
+	server = https.createServer({
+		cert: fs.readFileSync(process.env.CERT_PATH || ""),
+		key: fs.readFileSync(process.env.KEY_PATH || ""),
+	});
+
+	wss = new WebSocketServer({ server });
+} else {
+	wss = new WebSocketServer({ port: wsPort });
+}
 
 const broker = new Broker();
 
@@ -34,3 +50,9 @@ wss.on("connection", (ws: WebSocket) => {
 
 	ws.on("error", console.error);
 });
+
+if (server) {
+	server.listen(wsPort, () => {
+		console.log("Serwer WSS działa na porcie " + wsPort);
+	});
+}
